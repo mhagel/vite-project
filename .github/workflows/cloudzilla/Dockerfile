@@ -1,21 +1,39 @@
-FROM node:21
+# Step 1: Use Node.js for building the app
+FROM node:21 AS builder
 
+# Set the working directory
 WORKDIR /app
 
-# add `/app/node_modules/.bin` to $PATH
+# Add `/app/node_modules/.bin` to PATH
 ENV PATH /app/node_modules/.bin:$PATH
 
-# enable corepack for pnpm and newer yarn versions
+# Enable Corepack for managing pnpm and Yarn versions
 RUN corepack enable
 
-# install app dependencies
+# Install dependencies
 COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
 
-RUN npm install
+RUN if [ -f package-lock.json ]; then npm install; \
+    elif [ -f yarn.lock ]; then yarn install; \
+    elif [ -f pnpm-lock.yaml ]; then pnpm install; \
+    else echo "No lockfile found. Exiting." && exit 1; \
+    fi
 
-# add app to container and attempt build
+# Copy the app's source code and build it
 COPY . ./
-RUN tsc -b &amp;&amp; vite build
+RUN npm run build
 
-# the start command needs to be triple curly braces to avoid escaping special characters
-CMD []
+# Use a lightweight NGINX image for serving the app
+FROM nginx:alpine
+
+# Copy the built files from the previous stage
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Copy a custom NGINX configuration file
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Expose port 80
+EXPOSE 80
+
+# Start NGINX
+CMD ["nginx", "-g", "daemon off;"]
